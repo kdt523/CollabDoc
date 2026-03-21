@@ -1,0 +1,62 @@
+const { Pool } = require('pg');
+
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL is required');
+}
+
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  max: 10,
+});
+
+async function initSchema() {
+  // pgcrypto provides gen_random_uuid(). Without it, UUID generation fails at runtime.
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS documents (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      title TEXT NOT NULL DEFAULT 'Untitled Document',
+      owner_id UUID REFERENCES users(id) ON DELETE CASCADE,
+      yjs_state BYTEA,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS document_access (
+      doc_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+      user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('owner', 'editor', 'viewer')),
+      PRIMARY KEY (doc_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS document_versions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      doc_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+      user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      yjs_state BYTEA NOT NULL,
+      version_name TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS documents_updated_at_idx ON documents(updated_at);
+    CREATE INDEX IF NOT EXISTS document_access_user_idx ON document_access(user_id);
+    CREATE INDEX IF NOT EXISTS document_versions_doc_idx ON document_versions(doc_id);
+  `);
+}
+
+module.exports = {
+  pool,
+  initSchema,
+};
+
