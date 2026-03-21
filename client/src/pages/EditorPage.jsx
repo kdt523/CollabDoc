@@ -1,13 +1,35 @@
 import React, { useEffect, useState } from 'react';
+import * as Y from 'yjs';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.js';
 import { useCollabDoc } from '../hooks/useCollabDoc.js';
-import { getDocMeta, patchDocTitle, shareDoc, joinSharedDoc } from '../api.js';
 import DocHeader from '../components/DocHeader.jsx';
 import PeerCursors from '../components/PeerCursors.jsx';
 import Editor from '../components/Editor.jsx';
 import VersionHistory from '../components/VersionHistory.jsx';
+import ChatPanel from '../components/ChatPanel.jsx';
+import AnnotationGutter from '../components/AnnotationGutter.jsx';
+import ReplayTimeline from '../components/ReplayTimeline.jsx';
+import CRDTDebugPanel from '../components/CRDTDebugPanel.jsx';
+import ThreadPopover from '../components/ThreadPopover.jsx';
+
+import { useChat } from '../hooks/useChat.js';
+import { useAnnotations } from '../hooks/useAnnotations.js';
+import { useReplay } from '../hooks/useReplay.js';
+
+import { 
+  getDocMeta, 
+  patchDocTitle, 
+  shareDoc, 
+  joinSharedDoc,
+  resolveAnnotation
+} from '../api.js';
+
 import '../styles/editor.css';
+import '../styles/chat.css';
+import '../styles/annotations.css';
+import '../styles/replay.css';
+import '../styles/debug.css';
 
 export default function EditorPage() {
   const { docId } = useParams();
@@ -18,9 +40,43 @@ export default function EditorPage() {
   const shareToken = searchParams.get('shareToken');
 
   const [shareAccessReady, setShareAccessReady] = useState(!shareToken);
-  const { ytext, awareness, synced, peers, sendAwareness, connectionStatus } = useCollabDoc(docId, {
+  
+  const { 
+    ydoc, 
+    ytext, 
+    synced, 
+    peers, 
+    sendAwareness, 
+    connectionStatus, 
+    awareness,
+    debugLog 
+  } = useCollabDoc(docId, {
     enabled: shareAccessReady,
   });
+
+  const {
+    messages,
+    ephemeralMsgs,
+    threads,
+    sendMessage,
+    createThread,
+    resolveThread: resolveChatThread
+  } = useChat(ydoc, token);
+
+  const {
+    annotations
+  } = useAnnotations(ydoc);
+
+  const {
+    events,
+    isReplaying,
+    replayIndex,
+    startReplay,
+    stopReplay,
+    stepTo,
+    currentSnapshot,
+    snapshotChat
+  } = useReplay(docId, token);
 
   const [metaLoading, setMetaLoading] = useState(true);
   const [metaError, setMetaError] = useState('');
@@ -28,19 +84,20 @@ export default function EditorPage() {
   const [canEdit, setCanEdit] = useState(false);
   const [shareNotice, setShareNotice] = useState('');
   const [shareError, setShareError] = useState('');
+  
   const [showHistory, setShowHistory] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [activePopover, setActivePopover] = useState(null);
 
   useEffect(() => {
-    // Reset the gate when the query changes (e.g. opening a different share link).
     setShareAccessReady(!shareToken);
   }, [shareToken]);
 
-  // 1) If we arrived from a share link, grant access first, then enable collaboration.
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!shareToken) return;
-      if (shareAccessReady) return;
+      if (!shareToken || shareAccessReady) return;
 
       setMetaLoading(true);
       setMetaError('');
@@ -56,12 +113,9 @@ export default function EditorPage() {
       }
     }
     run();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [shareToken, shareAccessReady, token, docId, navigate]);
 
-  // 2) Fetch document metadata once access is ready.
   useEffect(() => {
     let cancelled = false;
     async function run() {
@@ -83,10 +137,16 @@ export default function EditorPage() {
       }
     }
     run();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [shareAccessReady, token, docId]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'D') setDebugOpen(v => !v);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   async function onTitleChange(nextTitle) {
     setTitle(nextTitle);
@@ -99,14 +159,11 @@ export default function EditorPage() {
     try {
       const result = await shareDoc(token, docId);
       const shareUrl = result.shareUrl;
-
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareUrl);
         setShareNotice('Share link copied to clipboard.');
         return;
       }
-
-      // Fallback in older/insecure browser contexts.
       window.prompt('Copy this share link:', shareUrl);
       setShareNotice('Share link generated.');
     } catch (err) {
@@ -115,47 +172,151 @@ export default function EditorPage() {
     }
   }
 
+  const onHandleComment = (threadTitle) => {
+    if (activePopover?.selection) {
+      createThread(activePopover.selection, threadTitle, ytext);
+      setActivePopover(null);
+    }
+  };
+
+  const onResolve = async (threadId) => {
+    const annId = activePopover?.thread?.annotationId || activePopover?.annotationId;
+    resolveChatThread(threadId, annId);
+    if (annId) {
+      await resolveAnnotation(token, docId, annId, threadId);
+    }
+    setActivePopover(null);
+  };
+
+  const handleSelectionChange = React.useCallback((selection, pos) => {
+    if (selection && selection.from !== selection.to) {
+      setActivePopover({ ...pos, selection });
+    } else if (!activePopover?.thread) {
+      setActivePopover(null);
+    }
+  }, [activePopover?.thread]);
+
+  if (metaLoading) return <div className="app-card" style={{ margin: 24, padding: 16 }}>Loading document...</div>;
+  if (metaError) return <div className="app-card" style={{ margin: 24, padding: 16 }}>{metaError}</div>;
+
   return (
-    <div className="editor-page">
-      {metaLoading ? (
-        <div className="app-card" style={{ margin: 24, padding: 16 }}>
-          Loading document...
-        </div>
-      ) : metaError ? (
-        <div className="app-card" style={{ margin: 24, padding: 16 }}>
-          {metaError}
-        </div>
-      ) : (
-        <>
-          <DocHeader
-            title={title}
-            canEdit={canEdit}
-            onTitleChange={onTitleChange}
-            onShare={onShare}
-            onShowHistory={() => setShowHistory(true)}
-            connectionStatus={connectionStatus}
-            shareNotice={shareNotice}
-            shareError={shareError}
-          />
-          <PeerCursors peers={peers} />
-          <div className="editor-body">
+    <div className={`editor-page ${chatOpen ? 'chat-open' : ''} ${isReplaying ? 'replaying' : ''}`}>
+      <DocHeader
+        title={title}
+        canEdit={canEdit}
+        onTitleChange={onTitleChange}
+        onShare={onShare}
+        onShowHistory={() => setShowHistory(true)}
+        onChatToggle={() => setChatOpen(!chatOpen)}
+        onReplayToggle={startReplay}
+        connectionStatus={connectionStatus}
+        shareNotice={shareNotice}
+        shareError={shareError}
+      />
+      
+      <div className="editor-layout" style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <AnnotationGutter 
+          annotations={annotations}
+          editorView={window.cmView}
+          onAnnotationClick={(ann) => {
+            const thread = threads.get(ann.thread_id);
+            setActivePopover({ 
+              top: 100, // actual positioning can be improved with coordsAtPos
+              left: 50,
+              thread,
+              annotationId: ann.id
+            });
+          }}
+        />
+
+        <div className="editor-main" style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+          {isReplaying ? (
+            <div className="replay-viewer" style={{ flex: 1, padding: 20, overflow: 'auto', background: '#1e1e1e', color: '#fff' }}>
+              <pre>{currentSnapshot}</pre>
+            </div>
+          ) : (
             <Editor
-              user={user}
+              ydoc={ydoc}
               ytext={ytext}
+              active={synced}
               awareness={awareness}
-              synced={synced}
+              user={user}
               sendAwareness={sendAwareness}
-            />
-          </div>
-          {showHistory && (
-            <VersionHistory 
-              docId={docId} 
-              onClose={() => setShowHistory(false)} 
+              onSelectionChange={handleSelectionChange}
             />
           )}
-        </>
+
+          {activePopover && (
+            <ThreadPopover 
+              position={activePopover}
+              thread={activePopover.thread}
+              onComment={onHandleComment}
+              onReply={(threadId, data) => sendMessage(data.text, 'persistent', data.mentions, threadId)}
+              onResolve={onResolve}
+              onClose={() => setActivePopover(null)}
+              suggestions={peers}
+            />
+          )}
+        </div>
+
+        {chatOpen && (
+          <ChatPanel 
+            messages={isReplaying ? snapshotChat : messages}
+            ephemeralMsgs={isReplaying ? [] : ephemeralMsgs}
+            threads={threads}
+            peers={peers}
+            user={{ ...user, role: canEdit ? 'editor' : 'viewer' }}
+            onSend={(data) => sendMessage(data.text, data.mode, data.mentions)}
+            onGoToThread={(t) => {
+              const ann = annotations.find(a => a.threadId === t.id);
+              if (ann && window.cmView) {
+                const startPos = Y.createRelativePositionFromJSON(ann.anchor.start);
+                const absStart = Y.createAbsolutePositionFromRelativePosition(startPos, ydoc);
+                if (absStart) {
+                   window.cmView.dispatch({
+                     selection: { anchor: absStart.index },
+                     scrollIntoView: true
+                   });
+                   window.cmView.focus();
+                   setActivePopover({ 
+                     top: 150, 
+                     left: 60, 
+                     thread: t, 
+                     annotationId: ann.id 
+                   });
+                }
+              }
+            }}
+            onResolveThread={onResolve}
+          />
+        )}
+      </div>
+
+      {isReplaying && (
+        <ReplayTimeline 
+          events={events}
+          replayIndex={replayIndex}
+          isReplaying={isReplaying}
+          onStepTo={stepTo}
+          onStop={stopReplay}
+        />
       )}
+
+      {debugOpen && (
+        <CRDTDebugPanel 
+          ydoc={ydoc}
+          debugLog={debugLog}
+          messages={messages}
+          threads={threads}
+          ephemeral={ephemeralMsgs}
+        />
+      )}
+
+      {showHistory && (
+        <VersionHistory docId={docId} onClose={() => setShowHistory(false)} />
+      )}
+
+      <PeerCursors peers={peers} />
     </div>
   );
 }
-
