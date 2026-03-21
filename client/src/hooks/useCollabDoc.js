@@ -115,6 +115,7 @@ export function useCollabDoc(docId, { enabled = true } = {}) {
   const joinedRef = useRef(false);
   const pendingUpdatesRef = useRef([]); // Uint8Array[] generated before we join
   const sendAwarenessRef = useRef(() => {});
+  const debugLog = useRef([]); // max 50 entries
 
   const myColors = useMemo(() => {
     if (!user?.id) return { color: '#30bced', colorLight: '#30bced33' };
@@ -197,6 +198,12 @@ export function useCollabDoc(docId, { enabled = true } = {}) {
     const onDocUpdate = (updateArray) => {
       const update = new Uint8Array(updateArray);
       Y.applyUpdate(ydocInstance, update, 'remote');
+      
+      const receivedAt = Date.now();
+      debugLog.current = [
+        { socketId: 'remote', receivedAt, size: updateArray.length },
+        ...debugLog.current.slice(0, 49)
+      ].filter(Boolean);
     };
 
     // Awareness handling: relay remote cursors into the local awareness instance.
@@ -371,6 +378,7 @@ export function useCollabDoc(docId, { enabled = true } = {}) {
     sendAwareness: (...args) => sendAwarenessRef.current(...args),
     connectionStatus,
     awareness,
+    debugLog: debugLog.current,
   };
 }
 

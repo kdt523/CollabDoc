@@ -1,0 +1,78 @@
+.debug-panel {
+  position: absolute;
+  top: 80px;
+  right: 20px;
+  width: 250px;
+  background: var(--card-bg-opacity);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 15px;
+  z-index: 2000;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.3);
+}
+
+.debug-panel h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--primary-color);
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 4px;
+}
+
+.debug-panel .section {
+  margin-bottom: 20px;
+}
+
+.debug-panel dl {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.debug-panel dt {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+
+.debug-panel dd {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: monospace;
+  word-break: break-all;
+  margin: 0;
+}
+
+.debug-panel .hex {
+  color: var(--warning-color);
+}
+
+.sync-log {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sync-log li {
+  font-size: 10px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-secondary);
+  background: var(--bg-color-50);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.sync-log .size {
+  color: var(--success-color);
+  font-weight: 600;
+}
+
+.sync-log .from {
+  color: var(--primary-color);
+}

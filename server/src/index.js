@@ -14,6 +14,8 @@ const { authSocketMiddleware } = require('./authMiddleware');
 
 const authRoutes = require('./routes/auth');
 const docsRoutes = require('./routes/docs');
+const eventsRoutes = require('./routes/events');
+const annotationsRoutes = require('./routes/annotations');
 
 const PORT = process.env.PORT || 3001;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -35,6 +37,8 @@ async function main() {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/docs', docsRoutes);
+  app.use('/api/docs', eventsRoutes);
+  app.use('/api/docs', annotationsRoutes);
 
   const httpServer = http.createServer(app);
   const io = new Server(httpServer, {
