@@ -2,6 +2,9 @@ const Y = require('yjs');
 const { pool } = require('./db');
 const docManager = require('./docManager');
 const persistence = require('./persistence');
+const chatManager = require('./chatManager');
+const eventLogger = require('./eventLogger');
+const conflictDetector = require('./conflictDetector');
 
 function hashToHslColor(userId) {
   let hash = 0;
@@ -76,7 +79,7 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
 
   io.on('connection', (socket) => {
     socket.joinedDocId = null;
-    socket.awarenessClientId = null; // numeric Yjs awareness clientID
+    socket.awarenessClientId = null;
 
     // doc:join — { docId, stateVector? , awarenessClientId? }
     socket.on('doc:join', async (payload) => {
@@ -102,20 +105,16 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
 
         socket.joinedDocId = docId;
         if (awarenessClientId != null) socket.awarenessClientId = awarenessClientId;
-
-        // 2) join room
         await socket.join(docId);
 
-        // 3) Load doc via persistence
+        // 3) Load doc
         const serverDoc = docManager.getOrCreateDoc(docId);
         const loaded = await persistence.loadDoc(docId);
         if (loaded) {
-          // Merge loaded state into the server doc (idempotent by CRDT IDs).
-          const update = Y.encodeStateAsUpdate(loaded);
-          Y.applyUpdate(serverDoc, update);
+          Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(loaded));
         }
 
-        // 4/5) Sync with either delta-only or full init.
+        // 4) Initial Sync
         const serverStateVector = docManager.getStateVector(docId);
         if (stateVector) {
           const delta = docManager.getMissingUpdates(docId, stateVector);
@@ -131,10 +130,9 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
           });
         }
 
-        // 6) Ensure Redis pub/sub subscription
         ensureSubscribedRoom({ subscriber: subscriber, room: `room:${docId}` });
 
-        // 7) Broadcast awareness:update to the room (initial presence).
+        // 5) Broadcast awareness
         const { color, colorLight } = hashToHslColor(socket.user.userId);
         io.to(docId).emit('awareness:update', {
           clientId: socket.awarenessClientId || socket.id,
@@ -145,34 +143,30 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
           cursor: null,
           selection: null,
         });
+
+        // 6) CRITICAL: CRDT Broadcast Listener for server-side changes
+        if (serverDoc && !serverDoc.broadcastBound) {
+          serverDoc.on('update', (update, origin) => {
+            if (origin === 'server-init') {
+              // We use the room ID from the closure
+              io.to(docId).emit('doc:update', Array.from(update));
+            }
+          });
+          serverDoc.broadcastBound = true;
+        }
+
       } catch (err) {
         console.error('[socketHandlers] doc:join failed:', err);
         socket.emit('error', { code: 'SERVER_ERROR', message: 'Failed to join' });
       }
     });
 
-    // doc:sync — state vector only (legacy) or { docId, stateVector }.
+    // doc:sync
     socket.on('doc:sync', async (payload) => {
       try {
-        let docId;
-        let stateVector;
-
-        if (Array.isArray(payload)) {
-          docId = inferDocIdFromSocket(socket);
-          stateVector = parseStateVectorMaybe(payload);
-        } else {
-          docId = payload?.docId || inferDocIdFromSocket(socket);
-          stateVector = parseStateVectorMaybe(payload?.stateVector);
-        }
-
-        if (!docId) {
-          socket.emit('error', { code: 'NOT_JOINED', message: 'Join the document before syncing' });
-          return;
-        }
-        if (!stateVector) {
-          socket.emit('error', { code: 'BAD_REQUEST', message: 'stateVector is required' });
-          return;
-        }
+        let docId = payload?.docId || inferDocIdFromSocket(socket);
+        let stateVector = parseStateVectorMaybe(payload?.stateVector || payload);
+        if (!docId || !stateVector) return;
 
         const delta = docManager.getMissingUpdates(docId, stateVector);
         const serverStateVector = docManager.getStateVector(docId);
@@ -182,37 +176,48 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
         });
       } catch (err) {
         console.error('[socketHandlers] doc:sync failed:', err);
-        socket.emit('error', { code: 'SERVER_ERROR', message: 'Sync failed' });
       }
     });
 
-    // doc:update — incremental CRDT update as Array<number>.
+    // doc:update
     socket.on('doc:update', async (updateArray) => {
       try {
         const docId = socket.joinedDocId || inferDocIdFromSocket(socket);
-        if (!docId) {
-          socket.emit('error', { code: 'NOT_JOINED', message: 'Join the document before updating' });
-          return;
-        }
+        if (!docId) return;
 
-        // 1) Convert Array -> Uint8Array
         const update = new Uint8Array(updateArray);
-
-        // 2) Apply to server Y.Doc
         const serverDoc = docManager.getOrCreateDoc(docId);
         docManager.applyUpdate(docId, update);
 
-        // 3) Broadcast to other local clients
         socket.to(docId).emit('doc:update', Array.from(update));
+        publisher.publish(`room:${docId}`, JSON.stringify({ update: Array.from(update), origin: socket.id }));
 
-        // 4) Publish to Redis for other server instances (dedup via origin)
-        const channel = `room:${docId}`;
-        publisher.publish(
-          channel,
-          JSON.stringify({ update: Array.from(update), origin: socket.id })
-        );
+        // Conflict Detection
+        const ranges = conflictDetector.extractAffectedRanges(update, serverDoc);
+        const conflict = conflictDetector.detectConflict(docId, socket.id, ranges);
+        conflictDetector.recordEdit(docId, socket.id, socket.user.userId, socket.user.name, ranges);
 
-        // 5/6) Persist
+        if (conflict.detected) {
+          const threadId = `conflict_${Date.now()}`;
+          chatManager.createThread(serverDoc, {
+            threadId,
+            triggerType: 'conflict',
+            title: `Conflict: ${socket.user.name} and ${conflict.conflictingEdit.userName}`
+          });
+          chatManager.addThreadReply(serverDoc, threadId, {
+            id: `sys_${Date.now()}`,
+            authorId: 'system',
+            authorName: 'CollabEdit',
+            text: `@${socket.user.name} and @${conflict.conflictingEdit.userName} edited overlapping text.`,
+            mentions: [socket.user.userId, conflict.conflictingEdit.userId]
+          });
+        }
+
+        eventLogger.logEvent(docId, 'doc:update', socket.user, {
+          yjsUpdate: update,
+          clock: Y.encodeStateVector(serverDoc).length
+        });
+
         persistence.scheduleFlushToPostgres(docId, serverDoc);
         persistence.saveDocToRedis(docId, serverDoc).catch(() => {});
       } catch (err) {
@@ -220,35 +225,105 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
       }
     });
 
-    // awareness:update — { cursor, selection, name, color, colorLight, clientId? }
+    // chat:message
+    socket.on('chat:message', (data) => {
+      const docId = socket.joinedDocId || inferDocIdFromSocket(socket);
+      if (!docId) return;
+      const serverDoc = docManager.getOrCreateDoc(docId);
+      const msgId = `msg_${Date.now()}`;
+
+      if (data.threadId) {
+        chatManager.addThreadReply(serverDoc, data.threadId, {
+          id: msgId,
+          authorId: socket.user.userId,
+          authorName: socket.user.name,
+          text: data.text,
+          mentions: data.mentions || []
+        });
+      } else {
+        chatManager.createMessage(serverDoc, {
+          id: msgId,
+          authorId: socket.user.userId,
+          authorName: socket.user.name,
+          authorColor: socket.user.color,
+          text: data.text,
+          mentions: data.mentions || [],
+          mode: data.mode || 'persistent'
+        });
+      }
+
+      eventLogger.logEvent(docId, 'chat:message', socket.user, {
+        payload: { msgId, text: data.text, mode: data.mode, threadId: data.threadId },
+        clock: Y.encodeStateVector(serverDoc).length
+      });
+    });
+
+    // thread:create
+    socket.on('thread:create', async (data) => {
+      const docId = socket.joinedDocId || inferDocIdFromSocket(socket);
+      if (!docId) return;
+      const serverDoc = docManager.getOrCreateDoc(docId);
+
+      chatManager.createThread(serverDoc, {
+        threadId: data.threadId,
+        triggerType: 'manual',
+        annotationId: data.annotationId,
+        title: data.title
+      });
+
+      chatManager.createAnnotation(serverDoc, {
+        id: data.annotationId,
+        anchor: { start: data.anchorStart, end: data.anchorEnd },
+        threadId: data.threadId,
+        authorId: socket.user.userId
+      });
+
+      await pool.query(
+        `INSERT INTO annotations (id, doc_id, yjs_anchor, thread_id, created_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [data.annotationId, docId, JSON.stringify({ start: data.anchorStart, end: data.anchorEnd }), data.threadId, socket.user.userId]
+      );
+
+      eventLogger.logEvent(docId, 'thread:create', socket.user, {
+        payload: { threadId: data.threadId, annotationId: data.annotationId, title: data.title },
+        clock: Y.encodeStateVector(serverDoc).length
+      });
+    });
+
+    // thread:resolve
+    socket.on('thread:resolve', async (data) => {
+      const docId = socket.joinedDocId || inferDocIdFromSocket(socket);
+      if (!docId) return;
+      const serverDoc = docManager.getOrCreateDoc(docId);
+      chatManager.resolveThread(serverDoc, data.threadId);
+      await pool.query('UPDATE annotations SET resolved = true WHERE id = $1', [data.annotationId]);
+    });
+
+    // awareness:update
     socket.on('awareness:update', async (payload) => {
       const docId = socket.joinedDocId || inferDocIdFromSocket(socket);
       if (!docId) return;
-
       const clientId = payload?.clientId ?? socket.awarenessClientId ?? socket.id;
-      socket.awarenessClientId = clientId;
-
-      const cursor = payload?.cursor ?? null;
-      const selection = payload?.selection ?? null;
-
       io.to(docId).emit('awareness:update', {
         clientId,
         userId: socket.user.userId,
         name: payload?.name ?? socket.user.name,
         color: payload?.color ?? null,
-        colorLight: payload?.colorLight ?? null,
-        cursor,
-        selection,
+        cursor: payload?.cursor ?? null,
+        selection: payload?.selection ?? null,
       });
     });
 
     socket.on('disconnect', () => {
-      const docId = socket.joinedDocId || null;
+      const docId = socket.joinedDocId;
       if (!docId) return;
-
-      const clientId = socket.awarenessClientId || socket.id;
-      io.to(docId).emit('awareness:leave', { clientId });
+      io.to(docId).emit('awareness:leave', { clientId: socket.awarenessClientId || socket.id });
+      const room = io.sockets.adapter.rooms.get(docId);
+      if (!room || room.size === 0) {
+        chatManager.clearEphemeral(docManager.getOrCreateDoc(docId));
+      }
     });
+
   });
 }
 
