@@ -104,4 +104,19 @@ export function restoreDocVersion(token, docId, versionId) {
   });
 }
 
+export function getDocEvents(token, docId, since, limit) {
+  const params = new URLSearchParams();
+  if (since) params.set('since', since);
+  if (limit) params.set('limit', limit);
+  return apiRequest(`/docs/${docId}/events?${params.toString()}`, { token });
+}
+
+export function resolveAnnotation(token, docId, annotationId, threadId) {
+  return apiRequest(`/docs/${docId}/annotations/${annotationId}/resolve`, {
+    method: 'PATCH',
+    token,
+    body: { threadId }
+  });
+}
+
 

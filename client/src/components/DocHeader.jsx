@@ -6,6 +6,8 @@ export default function DocHeader({
   onTitleChange,
   onShare,
   onShowHistory,
+  onChatToggle,
+  onReplayToggle,
   connectionStatus = 'offline',
   shareNotice = '',
   shareError = '',
@@ -88,6 +90,12 @@ export default function DocHeader({
             }}
           >
             {shareLoading ? 'Preparing...' : 'Share'}
+          </button>
+          <button className="btn btn-secondary" onClick={onReplayToggle} title="Replay History">
+            Replay
+          </button>
+          <button className="btn btn-secondary" onClick={onChatToggle} title="Toggle Chat">
+            Chat
           </button>
           <button className="btn btn-secondary" onClick={onShowHistory} title="Version History">
             History
