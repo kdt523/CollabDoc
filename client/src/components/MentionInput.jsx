@@ -89,6 +89,8 @@ export default function MentionInput({ value, onChange, onSend, suggestions, pla
       )}
       <textarea
         ref={inputRef}
+        id="chat-input"
+        name="chat-input"
         className="mention-input"
         value={text}
         onChange={handleInput}

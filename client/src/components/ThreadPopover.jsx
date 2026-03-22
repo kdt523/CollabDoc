@@ -37,6 +37,8 @@ export default function ThreadPopover({
           <h4>Add Annotation</h4>
           <input 
             type="text" 
+            id="thread-title-input"
+            name="thread-title-input"
             value={newThreadTitle} 
             onChange={(e) => setNewThreadTitle(e.target.value)}
             placeholder="Anchor name (e.g., 'Fix typo')"
