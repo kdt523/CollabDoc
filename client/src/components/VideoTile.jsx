@@ -11,7 +11,11 @@ export default function VideoTile({ stream, name, color, muted, cameraOff, isLoc
     if (stream) {
       videoRef.current.srcObject = stream
       // Explicit play is more robust than autoPlay attribute alone
-      videoRef.current.play().catch(e => console.warn('Video auto-play delayed until interaction', e))
+      videoRef.current.play().catch((error) => {
+        if (error?.name !== 'AbortError') {
+          console.warn('Video auto-play delayed until interaction', error)
+        }
+      })
     } else {
       videoRef.current.srcObject = null
     }
