@@ -12,6 +12,9 @@ import AnnotationGutter from '../components/AnnotationGutter.jsx';
 import ReplayTimeline from '../components/ReplayTimeline.jsx';
 import CRDTDebugPanel from '../components/CRDTDebugPanel.jsx';
 import ThreadPopover from '../components/ThreadPopover.jsx';
+import CallWindow from '../components/CallWindow.jsx';
+
+import { getSocket } from '../socket.js';
 
 import { useChat } from '../hooks/useChat.js';
 import { useAnnotations } from '../hooks/useAnnotations.js';
@@ -30,6 +33,7 @@ import '../styles/chat.css';
 import '../styles/annotations.css';
 import '../styles/replay.css';
 import '../styles/debug.css';
+import '../styles/call.css';
 
 export default function EditorPage() {
   const { docId } = useParams();
@@ -317,6 +321,11 @@ export default function EditorPage() {
       )}
 
       <PeerCursors peers={peers} />
+      <CallWindow 
+        socket={getSocket(token)} 
+        docId={docId} 
+        currentUser={{ name: user.name, color: user.color }} 
+      />
     </div>
   );
 }

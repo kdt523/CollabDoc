@@ -5,6 +5,7 @@ const persistence = require('./persistence');
 const chatManager = require('./chatManager');
 const eventLogger = require('./eventLogger');
 const conflictDetector = require('./conflictDetector');
+const callManager = require('./callManager');
 
 function hashToHslColor(userId) {
   let hash = 0;
@@ -61,6 +62,25 @@ function setupRedisSubscriberRelay({ io, subscriber }) {
       }
     } catch (err) {
       console.error('[socketHandlers] redis relay failed:', err);
+    }
+  });
+
+  // NEW: WebRTC signaling relay across servers
+  subscriber.on('message', (channel, message) => {
+    if (!channel.startsWith('signal:')) return;
+    const docId = channel.replace('signal:', '');
+    try {
+      const { type, from, to, payload } = JSON.parse(message);
+      if (to) {
+        const targetSocket = io.sockets.sockets.get(to);
+        if (targetSocket) {
+          targetSocket.emit(type, { from, ...payload });
+        }
+      } else {
+        io.to(docId).except(from).emit(type, { from, ...payload });
+      }
+    } catch (e) {
+      console.error('[socketHandlers] signal relay failed:', e);
     }
   });
 }
@@ -121,16 +141,19 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
           socket.emit('doc:sync:response', {
             delta: Array.from(delta),
             serverStateVector: Array.from(serverStateVector),
+            activeCallers: callManager.getCallParticipants(docId),
           });
         } else {
           const stateUpdate = docManager.getStateAsUpdate(docId);
           socket.emit('doc:init', {
             update: Array.from(stateUpdate),
             serverStateVector: Array.from(serverStateVector),
+            activeCallers: callManager.getCallParticipants(docId),
           });
         }
 
         ensureSubscribedRoom({ subscriber: subscriber, room: `room:${docId}` });
+        ensureSubscribedRoom({ subscriber: subscriber, room: `signal:${docId}` });
 
         // 5) Broadcast awareness
         const { color, colorLight } = hashToHslColor(socket.user.userId);
@@ -299,6 +322,100 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
       await pool.query('UPDATE annotations SET resolved = true WHERE id = $1', [data.annotationId]);
     });
 
+    // ─── CALL EVENTS ───────────────────────────────────────────────
+
+    socket.on('call:join', () => {
+      const docId = socket.joinedDocId;
+      if (!docId) return;
+
+      callManager.joinCall(docId, socket.id, {
+        userId: socket.user.userId,
+        name: socket.user.name,
+        color: socket.user.color || '#888'
+      });
+
+      const existing = callManager.getCallParticipants(docId).filter(p => p.socketId !== socket.id);
+      
+      // Specifically tell the joiner who is already in the call
+      socket.emit('call:participants', existing);
+      
+      // Also broadcast to the room that a join event happened (this prompts offers)
+      socket.to(docId).emit('call:peer-joined', {
+        socketId: socket.id,
+        userId: socket.user.userId,
+        name: socket.user.name,
+        color: socket.user.color || '#888'
+      });
+
+      publisher.publish(`signal:${docId}`, JSON.stringify({
+        type: 'call:peer-joined',
+        from: socket.id,
+        payload: { socketId: socket.id, userId: socket.user.userId, name: socket.user.name }
+      }));
+    });
+
+    socket.on('call:leave', () => {
+      const docId = socket.joinedDocId;
+      if (!docId) return;
+
+      callManager.leaveCall(docId, socket.id);
+      socket.to(docId).emit('call:peer-left', { socketId: socket.id });
+      publisher.publish(`signal:${docId}`, JSON.stringify({
+        type: 'call:peer-left',
+        from: socket.id,
+        payload: { socketId: socket.id }
+      }));
+    });
+
+    socket.on('signal:offer', ({ to, offer }) => {
+      const targetSocket = io.sockets.sockets.get(to);
+      if (targetSocket) {
+        targetSocket.emit('signal:offer', { from: socket.id, offer });
+      } else {
+        publisher.publish(`signal:${socket.joinedDocId}`, JSON.stringify({
+          type: 'signal:offer',
+          from: socket.id,
+          to,
+          payload: { offer }
+        }));
+      }
+    });
+
+    socket.on('signal:answer', ({ to, answer }) => {
+      const targetSocket = io.sockets.sockets.get(to);
+      if (targetSocket) {
+        targetSocket.emit('signal:answer', { from: socket.id, answer });
+      } else {
+        publisher.publish(`signal:${socket.joinedDocId}`, JSON.stringify({
+          type: 'signal:answer',
+          from: socket.id,
+          to,
+          payload: { answer }
+        }));
+      }
+    });
+
+    socket.on('signal:ice', ({ to, candidate }) => {
+      const targetSocket = io.sockets.sockets.get(to);
+      if (targetSocket) {
+        targetSocket.emit('signal:ice', { from: socket.id, candidate });
+      } else {
+        publisher.publish(`signal:${socket.joinedDocId}`, JSON.stringify({
+          type: 'signal:ice',
+          from: socket.id,
+          to,
+          payload: { candidate }
+        }));
+      }
+    });
+
+    socket.on('call:state-change', (state) => {
+      socket.to(socket.joinedDocId).emit('call:peer-state-change', {
+        socketId: socket.id,
+        ...state
+      });
+    });
+
     // awareness:update
     socket.on('awareness:update', async (payload) => {
       const docId = socket.joinedDocId || inferDocIdFromSocket(socket);
@@ -321,6 +438,11 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
       const room = io.sockets.adapter.rooms.get(docId);
       if (!room || room.size === 0) {
         chatManager.clearEphemeral(docManager.getOrCreateDoc(docId));
+      }
+
+      const leftCallDocId = callManager.handleDisconnect(socket.id);
+      if (leftCallDocId) {
+        io.to(leftCallDocId).emit('call:peer-left', { socketId: socket.id });
       }
     });
 
