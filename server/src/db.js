@@ -79,6 +79,52 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS document_access_user_idx ON document_access(user_id);
     CREATE INDEX IF NOT EXISTS document_versions_doc_idx ON document_versions(doc_id);
     CREATE INDEX IF NOT EXISTS doc_events_doc_id_idx ON doc_events(doc_id, created_at);
+
+    -- Causal provenance cache
+    -- Walking the Yjs linked list is fast for small ranges but expensive for large docs
+    -- Cache computed provenance results keyed by (docId, contentHash of range)
+    -- TTL-invalidated when the document changes in that region
+    CREATE TABLE IF NOT EXISTS provenance_cache (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      doc_id       UUID REFERENCES documents(id) ON DELETE CASCADE,
+      range_hash   TEXT NOT NULL,         -- SHA-256 of (fromIndex, toIndex, stateVector)
+      chain        JSONB NOT NULL,        -- The computed causal chain result
+      computed_at  TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(doc_id, range_hash)
+    );
+
+    -- LLM conflict analysis results
+    -- Store LLM responses so the same conflict is never analyzed twice
+    CREATE TABLE IF NOT EXISTS conflict_analyses (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      doc_id          UUID REFERENCES documents(id) ON DELETE CASCADE,
+      thread_id       TEXT NOT NULL UNIQUE,    -- matches thread_id in doc_events
+      before_text     TEXT NOT NULL,
+      alice_edit      TEXT NOT NULL,
+      bob_edit        TEXT NOT NULL,
+      merged_result   TEXT NOT NULL,
+      context_text    TEXT NOT NULL,
+      analysis        JSONB NOT NULL,          -- LLM response: { compatible, aliceIntent, bobIntent, semanticConflict, suggestion }
+      model_used      TEXT NOT NULL,
+      computed_at     TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Maps Yjs Y.Doc.clientID (uint32) to our user UUID
+    -- Populated when a user connects to a document session
+    -- Needed to resolve "who wrote this character" from causal graph data
+    CREATE TABLE IF NOT EXISTS session_clients (
+      doc_id      UUID REFERENCES documents(id) ON DELETE CASCADE,
+      yjs_client_id  BIGINT NOT NULL,   -- Y.Doc.clientID (uint32, stored as bigint)
+      user_id     UUID REFERENCES users(id),
+      user_name   TEXT NOT NULL,
+      user_color  TEXT NOT NULL,
+      first_seen  TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (doc_id, yjs_client_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS conflict_analyses_doc_idx ON conflict_analyses(doc_id);
+    CREATE INDEX IF NOT EXISTS conflict_analyses_thread_idx ON conflict_analyses(thread_id);
+    CREATE INDEX IF NOT EXISTS provenance_cache_doc_idx ON provenance_cache(doc_id);
   `);
 }
 

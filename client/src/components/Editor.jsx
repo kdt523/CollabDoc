@@ -5,7 +5,10 @@ import { basicSetup } from 'codemirror';
 import { yCollab } from 'y-codemirror.next';
 import { EditorView } from '@codemirror/view';
 import { undo, redo } from '@codemirror/commands';
+import ProvenanceTooltip from './ProvenanceTooltip';
+import { useState, useCallback } from 'react';
 import '../styles/editor.css';
+import '../styles/provenance.css';
 
 function replaceSelection(view, formatter) {
   const sel = view.state.selection.main;
@@ -29,12 +32,15 @@ function applyPrefixToSelectedLines(view, prefix) {
   view.focus();
 }
 
-export default function Editor({ ydoc, ytext, active, awareness, user, sendAwareness, onSelectionChange }) {
+export default function Editor({ ydoc, ytext, active, awareness, user, sendAwareness, onSelectionChange, token }) {
   const containerRef = useRef(null);
   const viewRef = useRef(null);
   const surfaceRef = useRef(null);
   const onSelectionChangeRef = useRef(onSelectionChange);
   const sendAwarenessRef = useRef(sendAwareness);
+  const [provenanceSelection, setProvenanceSelection] = useState(null);
+
+  const docId = window.location.pathname.split('/').pop();
 
   useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange;
@@ -84,6 +90,17 @@ export default function Editor({ ydoc, ytext, active, awareness, user, sendAware
             } : { top: 0, left: 0 };
             
             onSelectionChangeRef.current({ from: sel.from, to: sel.to }, pos);
+
+            // NEW: if user has selected text (non-empty selection), show provenance icon
+            if (!sel.empty && sel.to - sel.from >= 3) {
+              setProvenanceSelection({
+                from: sel.from,
+                to: sel.to,
+                fromCoords: coords // Absolute coords for fixed positioning
+              });
+            } else {
+              setProvenanceSelection(null);
+            }
           }
         }),
       ],
@@ -127,6 +144,13 @@ export default function Editor({ ydoc, ytext, active, awareness, user, sendAware
       <div ref={surfaceRef} className="editor-surface">
         <div ref={containerRef} className="cm-editor" />
       </div>
+
+      <ProvenanceTooltip
+        docId={docId}
+        selection={provenanceSelection}
+        onClose={() => setProvenanceSelection(null)}
+        token={token}
+      />
     </div>
   );
 }

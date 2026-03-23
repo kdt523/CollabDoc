@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import MentionInput from './MentionInput';
+import ConflictAnalysisCard from './ConflictAnalysisCard';
+
 
 export default function ThreadPopover({ 
   position, 
@@ -8,10 +10,12 @@ export default function ThreadPopover({
   onReply, 
   onResolve, 
   onClose,
-  suggestions
+  suggestions,
+  token
 }) {
   const [newThreadTitle, setNewThreadTitle] = useState('');
   const [isCreating, setIsCreating] = useState(!thread);
+  const docId = window.location.pathname.split('/').pop();
 
   const handleComment = () => {
     if (newThreadTitle.trim()) {
@@ -49,7 +53,15 @@ export default function ThreadPopover({
         <div className="thread-content">
           <h4>{thread.title}</h4>
           <div className="reply-list">
-            {(thread.replies || []).map((reply, i) => (
+            {thread.triggerType === 'conflict' && (
+              <ConflictAnalysisCard
+                docId={docId}
+                threadId={thread.id}
+                users={thread.conflictingUsers || []}
+                token={token}
+              />
+            )}
+            {(thread.replies || []).filter(r => r.authorId !== 'system').map((reply, i) => (
               <div key={reply.id || i} className="reply-item">
                 <span className="author">{reply.authorName}</span>
                 <span className="text">{reply.text}</span>

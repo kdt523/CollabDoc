@@ -6,6 +6,8 @@ const chatManager = require('./chatManager');
 const eventLogger = require('./eventLogger');
 const conflictDetector = require('./conflictDetector');
 const callManager = require('./callManager');
+const contributionMapper = require('./contributionMapper');
+
 
 function hashToHslColor(userId) {
   let hash = 0;
@@ -129,6 +131,23 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
 
         // 3) Load doc
         const serverDoc = docManager.getOrCreateDoc(docId);
+        const yjsClientId = serverDoc.clientID;
+
+        contributionMapper.registerClientId(docId, yjsClientId, {
+          userId: socket.user.userId,
+          name: socket.user.name,
+          color: socket.user.color || '#888'
+        });
+
+        // Persist the mapping so past sessions can be resolved too
+        pool.query(
+          `INSERT INTO session_clients (doc_id, yjs_client_id, user_id, user_name, user_color)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (doc_id, yjs_client_id) DO UPDATE
+           SET user_name = $4, user_color = $5`,
+          [docId, yjsClientId, socket.user.userId, socket.user.name, socket.user.color || '#888']
+        ).catch(() => {});
+
         const loaded = await persistence.loadDoc(docId);
         if (loaded) {
           Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(loaded));
@@ -222,10 +241,12 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
 
         if (conflict.detected) {
           const threadId = `conflict_${Date.now()}`;
+          const conflictingUsers = [socket.user.name, conflict.conflictingEdit.userName];
           chatManager.createThread(serverDoc, {
             threadId,
             triggerType: 'conflict',
-            title: `Conflict: ${socket.user.name} and ${conflict.conflictingEdit.userName}`
+            title: `Conflict: ${socket.user.name} and ${conflict.conflictingEdit.userName}`,
+            conflictingUsers
           });
           chatManager.addThreadReply(serverDoc, threadId, {
             id: `sys_${Date.now()}`,
@@ -233,6 +254,35 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
             authorName: 'CollabEdit',
             text: `@${socket.user.name} and @${conflict.conflictingEdit.userName} edited overlapping text.`,
             mentions: [socket.user.userId, conflict.conflictingEdit.userId]
+          });
+
+          // NEW: capture text context for LLM analysis
+          const ytext = serverDoc.getText('content');
+          const fullText = ytext.toString();
+
+          // Find the conflicting region in the current text
+          const conflictFrom = Math.max(0, Math.min(...ranges.map(r => r.from)) - 10);
+          const conflictTo = Math.min(fullText.length, Math.max(...ranges.map(r => r.to)) + 10);
+          const mergedResult = fullText.slice(conflictFrom, conflictTo);
+
+          // Context window: 250 chars before and after the conflict
+          const contextFrom = Math.max(0, conflictFrom - 250);
+          const contextTo = Math.min(fullText.length, conflictTo + 250);
+          const contextText = fullText.slice(contextFrom, contextTo);
+
+          eventLogger.logEvent(docId, 'conflict:detected', socket.user, {
+            payload: {
+              threadId,
+              conflictingUsers: [socket.user.name, conflict.conflictingEdit.userName],
+              // Text snapshots for LLM analysis — stored in JSONB payload
+              beforeText: conflict.conflictingEdit.textBefore || '',
+              aliceEdit: conflict.conflictingEdit.editedText || '',
+              bobEdit: mergedResult,
+              mergedResult,
+              contextText,
+              ranges: ranges
+            },
+            clock: Y.encodeStateVector(serverDoc).length
           });
         }
 

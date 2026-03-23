@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import DocumentHealthBar from './DocumentHealthBar';
+import ContributionBar from './ContributionBar';
+
 
 export default function DocHeader({
+  docId,
   title,
+  token,
   canEdit,
   onTitleChange,
   onShare,
@@ -74,7 +79,11 @@ export default function DocHeader({
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 15, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', borderRight: '1px solid #333', paddingRight: 15 }}>
+            <DocumentHealthBar docId={docId} token={token} />
+            <ContributionBar docId={docId} token={token} compact={true} />
+          </div>
           <button
             className="btn"
             disabled={shareLoading}

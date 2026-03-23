@@ -206,7 +206,9 @@ export default function EditorPage() {
   return (
     <div className={`editor-page ${chatOpen ? 'chat-open' : ''} ${isReplaying ? 'replaying' : ''}`}>
       <DocHeader
+        docId={docId}
         title={title}
+        token={token}
         canEdit={canEdit}
         onTitleChange={onTitleChange}
         onShare={onShare}
@@ -247,6 +249,7 @@ export default function EditorPage() {
               user={user}
               sendAwareness={sendAwareness}
               onSelectionChange={handleSelectionChange}
+              token={token}
             />
           )}
 
@@ -259,6 +262,7 @@ export default function EditorPage() {
               onResolve={onResolve}
               onClose={() => setActivePopover(null)}
               suggestions={peers}
+              token={token}
             />
           )}
         </div>

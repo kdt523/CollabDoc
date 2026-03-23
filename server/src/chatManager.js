@@ -28,7 +28,7 @@ function createMessage(ydoc, { id, authorId, authorName, authorColor, text, ment
   }, SERVER_ORIGIN);
 }
 
-function createThread(ydoc, { threadId, triggerType, annotationId, title }) {
+function createThread(ydoc, { threadId, triggerType, annotationId, title, conflictingUsers }) {
   ydoc.transact(() => {
     const threadsMap = ydoc.getMap('threads');
     if (!threadsMap.has(threadId)) {
@@ -39,6 +39,12 @@ function createThread(ydoc, { threadId, triggerType, annotationId, title }) {
       threadMeta.set('title', title);
       threadMeta.set('createdAt', Date.now());
       threadMeta.set('resolved', false);
+
+      if (Array.isArray(conflictingUsers)) {
+        const yConfMeta = new Y.Array();
+        yConfMeta.push(conflictingUsers);
+        threadMeta.set('conflictingUsers', yConfMeta);
+      }
       
       const repliesArray = new Y.Array();
       threadMeta.set('replies', repliesArray);

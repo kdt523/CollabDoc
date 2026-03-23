@@ -119,4 +119,11 @@ export function resolveAnnotation(token, docId, annotationId, threadId) {
   });
 }
 
+// Global API object for the new hooks (requires token in options)
+export const api = {
+  get: (path, options = {}) => apiRequest(path, { ...options, method: 'GET' }),
+  post: (path, body, options = {}) => apiRequest(path, { ...options, method: 'POST', body }),
+  patch: (path, body, options = {}) => apiRequest(path, { ...options, method: 'PATCH', body }),
+};
+
 
