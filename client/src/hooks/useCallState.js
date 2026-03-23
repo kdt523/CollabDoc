@@ -26,7 +26,6 @@ export function useCallState({ socket, docId }) {
         audio: { echoCancellation: true, noiseSuppression: true }
       })
     } catch (err) {
-      console.warn('Initial camera/mic request failed:', err.name)
       joinMode = 'audio-only'
 
       // 2) Fallback to Audio Only if Video is blocked or missing
@@ -34,7 +33,6 @@ export function useCallState({ socket, docId }) {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         setCallError('Camera is currently in use or not found. Joining with audio only.')
       } catch (audioErr) {
-        console.warn('Audio-only media request failed:', audioErr.name)
         joinMode = 'listen-only'
         setCallError('Camera/microphone unavailable. Joining in listen-only mode so you can still see and hear the call.')
       }
@@ -45,8 +43,13 @@ export function useCallState({ socket, docId }) {
     setMuted(joinMode === 'listen-only' || !stream?.getAudioTracks().length)
     setCameraOff(joinMode !== 'full' || !stream?.getVideoTracks().length)
     setInCall(true)
+  }, [])
+
+  useEffect(() => {
+    // Emit after inCall flips so WebRTC listeners are ready for the participant list.
+    if (!socket || !inCall) return
     socket.emit('call:join')
-  }, [socket])
+  }, [socket, inCall])
 
   const leaveCall = useCallback(() => {
     if (streamRef.current) {
