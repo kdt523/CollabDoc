@@ -21,6 +21,7 @@ const ICE_SERVERS = [
 export function useWebRTC({ socket, localStream, inCall }) {
   // Map<socketId, RTCPeerConnection>
   const peerConnections = useRef(new Map())
+  const remoteStreams = useRef(new Map())
   const [peers, setPeers] = useState(new Map())
 
   // Helper: create a new RTCPeerConnection to a specific peer
@@ -30,24 +31,31 @@ export function useWebRTC({ socket, localStream, inCall }) {
     }
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+    const audioTrack = localStream?.getAudioTracks()[0] || null
+    const videoTrack = localStream?.getVideoTracks()[0] || null
 
-    // CRITICAL: Always add transceivers so the SDP offer has media slots 
-    // for both directions, even if localStream is null right now.
-    pc.addTransceiver('audio', { direction: 'sendrecv' })
-    pc.addTransceiver('video', { direction: 'sendrecv' })
+    // Explicitly negotiate each media kind so listen-only peers still request
+    // remote tracks without creating duplicate senders/m-lines.
+    const audioTransceiver = pc.addTransceiver('audio', {
+      direction: audioTrack ? 'sendrecv' : 'recvonly'
+    })
+    const videoTransceiver = pc.addTransceiver('video', {
+      direction: videoTrack ? 'sendrecv' : 'recvonly'
+    })
 
-    // Add our local tracks if they are ALREADY available
-    if (localStream) {
-      localStream.getTracks().forEach(track => {
-        const sender = pc.getSenders().find(s => s.track?.kind === track.kind || (!s.track && s.dtlsTransport))
-        if (sender) sender.replaceTrack(track)
-        else pc.addTrack(track, localStream)
-      })
-    }
+    if (audioTrack) audioTransceiver.sender.replaceTrack(audioTrack)
+    if (videoTrack) videoTransceiver.sender.replaceTrack(videoTrack)
 
     // When we receive the remote peer's tracks, store them
     pc.ontrack = (event) => {
-      const [remoteStream] = event.streams
+      const remoteStream = event.streams[0] || remoteStreams.current.get(remoteSocketId) || new MediaStream()
+
+      if (!event.streams[0] && !remoteStream.getTracks().some(track => track.id === event.track.id)) {
+        remoteStream.addTrack(event.track)
+      }
+
+      remoteStreams.current.set(remoteSocketId, remoteStream)
+
       setPeers(prev => {
         const next = new Map(prev)
         const existing = next.get(remoteSocketId) || {}
@@ -96,6 +104,7 @@ export function useWebRTC({ socket, localStream, inCall }) {
       pc.close()
       peerConnections.current.delete(remoteSocketId)
     }
+    remoteStreams.current.delete(remoteSocketId)
     setPeers(prev => {
       const next = new Map(prev)
       next.delete(remoteSocketId)
@@ -199,14 +208,24 @@ export function useWebRTC({ socket, localStream, inCall }) {
   // Track update effect: ensure localStream tracks are swapped on existing connections 
   // if the stream becomes available after negotiation
   useEffect(() => {
-    if (!localStream || !inCall) return
+    if (!inCall) return
+
     peerConnections.current.forEach((pc) => {
-      const videoTrack = localStream.getVideoTracks()[0]
-      const audioTrack = localStream.getAudioTracks()[0]
-      
-      pc.getSenders().forEach(sender => {
-        if (sender.track?.kind === 'video' && videoTrack) sender.replaceTrack(videoTrack)
-        if (sender.track?.kind === 'audio' && audioTrack) sender.replaceTrack(audioTrack)
+      const videoTrack = localStream?.getVideoTracks()[0] || null
+      const audioTrack = localStream?.getAudioTracks()[0] || null
+
+      pc.getTransceivers().forEach((transceiver) => {
+        const kind = transceiver.receiver.track?.kind
+
+        if (kind === 'video') {
+          transceiver.direction = videoTrack ? 'sendrecv' : 'recvonly'
+          transceiver.sender.replaceTrack(videoTrack)
+        }
+
+        if (kind === 'audio') {
+          transceiver.direction = audioTrack ? 'sendrecv' : 'recvonly'
+          transceiver.sender.replaceTrack(audioTrack)
+        }
       })
     })
   }, [localStream, inCall])
