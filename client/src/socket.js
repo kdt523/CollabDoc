@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client';
 
-const SERVER_URL = 'http://localhost:3001';
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
 let socketSingleton = null;
 let lastToken = null;
@@ -20,7 +20,8 @@ export function getSocket(token) {
   lastToken = token;
   socketSingleton = io(SERVER_URL, {
     auth: { token },
-    transports: ['websocket'],
+    withCredentials: true,
+    transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: Infinity,
   });

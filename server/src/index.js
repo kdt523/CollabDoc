@@ -23,17 +23,32 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 async function main() {
   await initSchema();
 
+  const ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    process.env.CLIENT_URL,
+  ].filter(Boolean);
+
   const app = express();
   app.use(
     cors({
-      origin: CLIENT_URL,
-      methods: ['GET', 'POST', 'PATCH'],
+      origin: (origin, callback) => {
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+        callback(new Error(`CORS blocked: ${origin} not in allowed list`));
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     })
   );
   app.use(express.json({ limit: '1mb' }));
 
-  app.get('/health', (req, res) => res.json({ ok: true }));
+  app.get('/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  });
 
   app.use('/api/auth', authRoutes);
   app.use('/api/docs', docsRoutes);
@@ -43,10 +58,11 @@ async function main() {
   const httpServer = http.createServer(app);
   const io = new Server(httpServer, {
     cors: {
-      origin: CLIENT_URL,
+      origin: ALLOWED_ORIGINS,
       methods: ['GET', 'POST'],
-      credentials: false,
+      credentials: true,
     },
+    transports: ['websocket', 'polling']
   });
 
   // Socket auth must run before any event handler.
@@ -59,7 +75,7 @@ async function main() {
   });
 
   const server = httpServer.listen(PORT, () => {
-    console.log(`[server] listening on http://localhost:${PORT}`);
+    console.log(`[server] listening on port ${PORT}`);
   });
 
   const shutdown = async (signal) => {

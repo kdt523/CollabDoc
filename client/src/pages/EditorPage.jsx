@@ -208,6 +208,7 @@ export default function EditorPage() {
       <DocHeader
         title={title}
         canEdit={canEdit}
+        peers={peers}
         onTitleChange={onTitleChange}
         onShare={onShare}
         onShowHistory={() => setShowHistory(true)}
@@ -320,7 +321,7 @@ export default function EditorPage() {
         <VersionHistory docId={docId} onClose={() => setShowHistory(false)} />
       )}
 
-      <PeerCursors peers={peers} />
+
       <CallWindow 
         socket={getSocket(token)} 
         docId={docId} 

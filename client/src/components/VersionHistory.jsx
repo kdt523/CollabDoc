@@ -54,13 +54,13 @@ export default function VersionHistory({ docId, onClose }) {
     <div className="version-history-panel">
       <div className="version-history-header">
         <h3>Version History</h3>
-        <button className="close-btn" onClick={onClose}>✕</button>
+        <button className="close-history" onClick={onClose}>✕</button>
       </div>
-      <div className="version-history-actions">
-        <button className="btn btn-secondary" disabled={saving} onClick={onSaveSnapshot}>
-          {saving ? 'Saving...' : 'Snapshot Now'}
-        </button>
-      </div>
+      
+      <button className="snapshot-btn" disabled={saving} onClick={onSaveSnapshot}>
+        {saving ? 'Saving...' : 'Snapshot Now'}
+      </button>
+
       <div className="version-list-container">
         {loading ? (
           <div className="loading-text">Loading history...</div>
@@ -69,21 +69,19 @@ export default function VersionHistory({ docId, onClose }) {
         ) : versions.length === 0 ? (
           <div className="empty-text">No versions saved yet.</div>
         ) : (
-          <div className="version-list">
+          <>
             {versions.map((v) => (
-              <div key={v.id} className="version-item">
-                <div className="version-info">
-                  <div className="version-name">{v.version_name || 'Unnamed Snapshot'}</div>
-                  <div className="version-meta">
-                    Saved by <strong>{v.user_name || 'Unknown'}</strong> on {new Date(v.created_at).toLocaleString()}
-                  </div>
+              <div key={v.id} className="version-item" onClick={() => onRestore(v)}>
+                <div className="version-name">{v.version_name || (v.user_name ? `${v.user_name}'s snapshot` : 'Unnamed Snapshot')}</div>
+                <div className="version-meta">
+                  {new Date(v.created_at).toLocaleString()}
                 </div>
                 <div className="version-actions">
-                  <button className="btn-small" onClick={() => onRestore(v)}>Restore</button>
+                  <button className="restore-btn">Restore</button>
                 </div>
               </div>
             ))}
-          </div>
+          </>
         )}
       </div>
     </div>

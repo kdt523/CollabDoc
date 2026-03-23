@@ -3,15 +3,71 @@ import * as Y from 'yjs';
 import { EditorState } from '@codemirror/state';
 import { basicSetup } from 'codemirror';
 import { yCollab } from 'y-codemirror.next';
-import { EditorView } from '@codemirror/view';
+import { EditorView, Decoration, MatchDecorator, ViewPlugin, WidgetType } from '@codemirror/view';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { undo, redo } from '@codemirror/commands';
 import '../styles/editor.css';
 
-function replaceSelection(view, formatter) {
+// Visual Image Widget for Markdown: ![alt](url)
+class ImageWidget extends WidgetType {
+  constructor(url, alt) {
+    super();
+    this.url = url;
+    this.alt = alt;
+  }
+  toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-image-container';
+    const img = document.createElement('img');
+    img.src = this.url;
+    img.alt = this.alt;
+    img.title = this.alt;
+    img.className = 'cm-image-preview';
+    wrap.appendChild(img);
+    return wrap;
+  }
+  ignoreEvent() { return true; }
+}
+
+const imageDecorator = new MatchDecorator({
+  regexp: /!\[(.*?)\]\((.*?)\)/g,
+  decoration: (match) => {
+    return Decoration.widget({
+      widget: new ImageWidget(match[2], match[1]),
+      side: 1
+    });
+  }
+});
+
+const imagePlugin = ViewPlugin.fromClass(class {
+  constructor(view) { this.decorations = imageDecorator.createDeco(view); }
+  update(update) { this.decorations = imageDecorator.updateDeco(update, this.decorations); }
+}, { decorations: v => v.decorations });
+
+// Custom underline highlight for <u> tags
+const underlineDecorator = new MatchDecorator({
+  regexp: /<u>(.*?)<\/u>/g,
+  decoration: (match) => Decoration.mark({ class: 'cm-underline' })
+});
+const underlinePlugin = ViewPlugin.fromClass(class {
+  constructor(view) { this.decorations = underlineDecorator.createDeco(view); }
+  update(update) { this.decorations = underlineDecorator.updateDeco(update, this.decorations); }
+}, { decorations: v => v.decorations });
+
+function toggleFormatting(view, prefix, suffix = prefix) {
   const sel = view.state.selection.main;
   const selected = view.state.sliceDoc(sel.from, sel.to);
-  const inserted = formatter(selected);
-  view.dispatch({ changes: { from: sel.from, to: sel.to, insert: inserted }, scrollIntoView: true });
+  const isWrapped = selected.startsWith(prefix) && selected.endsWith(suffix);
+  
+  const inserted = isWrapped 
+    ? selected.slice(prefix.length, -suffix.length) 
+    : `${prefix}${selected}${suffix}`;
+    
+  view.dispatch({ 
+    changes: { from: sel.from, to: sel.to, insert: inserted },
+    selection: { anchor: sel.from, head: sel.from + inserted.length },
+    scrollIntoView: true 
+  });
   view.focus();
 }
 
@@ -51,14 +107,31 @@ export default function Editor({ ydoc, ytext, active, awareness, user, sendAware
       doc: ytext.toString(),
       extensions: [
         basicSetup,
+        markdown({ base: markdownLanguage }),
+        imagePlugin,
+        underlinePlugin,
         awareness ? yCollab(ytext, awareness, {
           user: { name: user?.name, color: '#30bced', colorLight: '#30bced33' },
         }) : [],
         EditorView.theme({
-          '&': { backgroundColor: '#1e1e1e', color: '#e5e7eb', height: '100% !important', minHeight: '600px' },
-          '.cm-content': { caretColor: '#ffffff' },
-          '.cm-gutters': { backgroundColor: '#1e1e1e', color: '#9ca3af', border: 'none' },
-          '.cm-line': { color: '#e5e7eb' },
+          '&': { 
+            height: 'auto', 
+            minHeight: '1056px',
+            backgroundColor: '#fff',
+            outline: 'none'
+          },
+          '.cm-scroller': {
+            overflow: 'visible'
+          },
+          '.cm-content': { 
+             padding: '0'
+          },
+          '.cm-gutters': { 
+            display: 'none' 
+          },
+          '.cm-line': { 
+            padding: '0' 
+          },
         }),
         EditorView.updateListener.of((update) => {
           if (!update.selectionSet) return;
@@ -77,11 +150,12 @@ export default function Editor({ ydoc, ytext, active, awareness, user, sendAware
 
           if (onSelectionChangeRef.current) {
             const coords = update.view.coordsAtPos(sel.from);
+            if (!coords) return;
             const parentRect = containerRef.current.getBoundingClientRect();
-            const pos = coords ? { 
+            const pos = { 
               top: coords.top - parentRect.top - 40, 
               left: coords.left - parentRect.left 
-            } : { top: 0, left: 0 };
+            };
             
             onSelectionChangeRef.current({ from: sel.from, to: sel.to }, pos);
           }
@@ -118,11 +192,36 @@ export default function Editor({ ydoc, ytext, active, awareness, user, sendAware
   return (
     <div className="cm-editor-wrap">
       <div className="editor-toolbar">
-        <button className="toolbar-btn" onClick={withView((v) => undo(v))} title="Undo">↶</button>
-        <button className="toolbar-btn" onClick={withView((v) => redo(v))} title="Redo">↷</button>
-        <button className="toolbar-btn" onClick={() => window.print()} title="Print">🖨</button>
-        <button className="toolbar-btn" onClick={withView((v) => replaceSelection(v, (t) => `**${t || 'bold'}**`))} title="Bold"><b>B</b></button>
-        <button className="toolbar-btn" onClick={withView((v) => replaceSelection(v, (t) => `*${t || 'italic'}*`))} title="Italic"><i>I</i></button>
+        <div style={{ display: 'flex', borderRight: '1px solid #ddd', paddingRight: 8, gap: 2 }}>
+          <button className="toolbar-btn" onClick={withView((v) => undo(v))} title="Undo (Ctrl+Z)">↶</button>
+          <button className="toolbar-btn" onClick={withView((v) => redo(v))} title="Redo (Ctrl+Y)">↷</button>
+          <button className="toolbar-btn" onClick={() => window.print()} title="Print (Ctrl+P)">🖨️</button>
+        </div>
+        
+        <div style={{ display: 'flex', borderRight: '1px solid #ddd', padding: '0 8px', gap: 2 }}>
+          <select className="toolbar-select" style={{ width: 120 }}>
+            <option>Normal text</option>
+            <option>Heading 1</option>
+            <option>Heading 2</option>
+          </select>
+          <select className="toolbar-select" style={{ width: 100 }}>
+            <option>Arial</option>
+            <option>Roboto</option>
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', borderRight: '1px solid #ddd', padding: '0 8px', gap: 2 }}>
+          <button className="toolbar-btn" onClick={withView((v) => toggleFormatting(v, '**'))} title="Bold (Ctrl+B)"><b>B</b></button>
+          <button className="toolbar-btn" onClick={withView((v) => toggleFormatting(v, '*'))} title="Italic (Ctrl+I)"><i>I</i></button>
+          <button className="toolbar-btn" onClick={withView((v) => toggleFormatting(v, '<u>', '</u>'))} title="Underline (Ctrl+U)"><u>U</u></button>
+          <button className="toolbar-btn" style={{ color: '#1a73e8' }} title="Text color">A</button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 2, paddingLeft: 8 }}>
+          <button className="toolbar-btn" title="Left Align">≡</button>
+          <button className="toolbar-btn" title="Center Align">⌸</button>
+          <button className="toolbar-btn" title="Right Align">⌹</button>
+        </div>
       </div>
       <div ref={surfaceRef} className="editor-surface">
         <div ref={containerRef} className="cm-editor" />
