@@ -22,6 +22,7 @@ export function useWebRTC({ socket, localStream, inCall }) {
   // Map<socketId, RTCPeerConnection>
   const peerConnections = useRef(new Map())
   const remoteStreams = useRef(new Map())
+  const pendingIceCandidates = useRef(new Map())
   const [peers, setPeers] = useState(new Map())
 
   // Helper: create a new RTCPeerConnection to a specific peer
@@ -95,6 +96,23 @@ export function useWebRTC({ socket, localStream, inCall }) {
     return pc
   }, [localStream, socket])
 
+  const flushPendingIceCandidates = useCallback(async (remoteSocketId) => {
+    const pc = peerConnections.current.get(remoteSocketId)
+    const queuedCandidates = pendingIceCandidates.current.get(remoteSocketId) || []
+
+    if (!pc || !pc.remoteDescription || queuedCandidates.length === 0) return
+
+    for (const candidate of queuedCandidates) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate))
+      } catch (error) {
+        // Ignore candidates that arrive after the peer was already reset.
+      }
+    }
+
+    pendingIceCandidates.current.delete(remoteSocketId)
+  }, [])
+
   const closePeerConnection = useCallback((remoteSocketId) => {
     const pc = peerConnections.current.get(remoteSocketId)
     if (pc) {
@@ -105,6 +123,7 @@ export function useWebRTC({ socket, localStream, inCall }) {
       peerConnections.current.delete(remoteSocketId)
     }
     remoteStreams.current.delete(remoteSocketId)
+    pendingIceCandidates.current.delete(remoteSocketId)
     setPeers(prev => {
       const next = new Map(prev)
       next.delete(remoteSocketId)
@@ -144,6 +163,7 @@ export function useWebRTC({ socket, localStream, inCall }) {
       if (!inCallRef.current) return 
       const pc = createPeerConnection(from, {})
       await pc.setRemoteDescription(new RTCSessionDescription(offer))
+      await flushPendingIceCandidates(from)
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
       socket.emit('signal:answer', { to: from, answer })
@@ -151,16 +171,24 @@ export function useWebRTC({ socket, localStream, inCall }) {
 
     const handleAnswer = async ({ from, answer }) => {
       const pc = peerConnections.current.get(from)
-      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer))
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer))
+        await flushPendingIceCandidates(from)
+      }
     }
 
     const handleIce = async ({ from, candidate }) => {
       const pc = peerConnections.current.get(from)
-      if (pc) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate))
-        } catch (e) { /* ignore late candidates */ }
+      if (!pc || !pc.remoteDescription) {
+        const queuedCandidates = pendingIceCandidates.current.get(from) || []
+        queuedCandidates.push(candidate)
+        pendingIceCandidates.current.set(from, queuedCandidates)
+        return
       }
+
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate))
+      } catch (e) { /* ignore late candidates */ }
     }
 
     const handlePeerLeft = ({ socketId }) => {
@@ -193,7 +221,7 @@ export function useWebRTC({ socket, localStream, inCall }) {
       socket.off('call:peer-left', handlePeerLeft)
       socket.off('call:peer-state-change', handlePeerStateChange)
     }
-  }, [socket, createPeerConnection, closePeerConnection]) 
+  }, [socket, createPeerConnection, closePeerConnection, flushPendingIceCandidates]) 
 
   // Cleanup all connections when leaving call
   useEffect(() => {
