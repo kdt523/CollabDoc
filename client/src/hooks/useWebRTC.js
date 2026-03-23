@@ -49,11 +49,14 @@ export function useWebRTC({ socket, localStream, inCall }) {
 
     // When we receive the remote peer's tracks, store them
     pc.ontrack = (event) => {
-      const remoteStream = event.streams[0] || remoteStreams.current.get(remoteSocketId) || new MediaStream()
+      const remoteStream = remoteStreams.current.get(remoteSocketId) || new MediaStream()
+      const incomingTracks = event.streams[0]?.getTracks() || [event.track]
 
-      if (!event.streams[0] && !remoteStream.getTracks().some(track => track.id === event.track.id)) {
-        remoteStream.addTrack(event.track)
-      }
+      incomingTracks.forEach((track) => {
+        if (!remoteStream.getTracks().some(existingTrack => existingTrack.id === track.id)) {
+          remoteStream.addTrack(track)
+        }
+      })
 
       remoteStreams.current.set(remoteSocketId, remoteStream)
 
