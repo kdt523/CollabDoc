@@ -313,5 +313,30 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// ─── Guest Login — Create a unique random user for demo ──────────────────────
+router.post('/guest', async (req, res) => {
+  try {
+    const randomSuffix = crypto.randomBytes(3).toString('hex');
+    const guestName = `Guest_${randomSuffix}`;
+    const guestEmail = `guest_${randomSuffix}@collabdoc.demo`;
+    const guestPassword = crypto.randomBytes(16).toString('hex');
+    const passwordHash = await bcrypt.hash(guestPassword, 12);
+
+    const { rows } = await pool.query(
+      `INSERT INTO users (email, password_hash, name)
+       VALUES ($1, $2, $3)
+       RETURNING id, email, name`,
+      [guestEmail, passwordHash, guestName]
+    );
+
+    const user = rows[0];
+    const token = signToken({ userId: user.id, email: user.email, name: user.name });
+    return res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+  } catch (err) {
+    console.error('[auth] guest login failed:', err);
+    return res.status(500).json({ code: 'SERVER_ERROR', message: 'Guest login failed' });
+  }
+});
+
 module.exports = router;
 

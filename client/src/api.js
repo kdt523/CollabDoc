@@ -49,6 +49,12 @@ export function login({ email, password }) {
   });
 }
 
+export function loginAsGuest() {
+  return apiRequest('/auth/guest', {
+    method: 'POST',
+  });
+}
+
 export function getDocs(token) {
   return apiRequest('/docs', { token });
 }

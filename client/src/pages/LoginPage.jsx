@@ -3,12 +3,24 @@ import { useAuth } from '../hooks/useAuth.js';
 import { Link } from 'react-router-dom';
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, loginAsGuest, isAuthenticated } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  async function onGuestLogin() {
+    setLoading(true);
+    setError('');
+    try {
+      await loginAsGuest();
+    } catch (err) {
+      setError(err?.message || 'Guest login failed');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -78,6 +90,22 @@ export default function LoginPage() {
 
           <button className={`btn btn-primary`} disabled={loading} style={{ marginTop: 6 }}>
             {loading ? 'Signing in...' : 'Sign in'}
+          </button>
+
+          <button
+            type="button"
+            className="btn"
+            disabled={loading}
+            onClick={onGuestLogin}
+            style={{ 
+              marginTop: 6, 
+              background: '#e8f0fe', 
+              color: '#1a73e8', 
+              border: 'none',
+              fontWeight: 600,
+            }}
+          >
+            {loading ? 'Entering...' : 'Try as Guest'}
           </button>
 
           <div style={{ color: 'var(--muted)', fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>

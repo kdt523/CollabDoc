@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { login as apiLogin, register as apiRegister } from '../api.js';
+import { login as apiLogin, register as apiRegister, loginAsGuest as apiGuestLogin } from '../api.js';
 
 const AuthContext = createContext(null);
 
@@ -69,6 +69,14 @@ export function AuthProvider({ children }) {
       navigate(from || '/dashboard', { replace: true });
     }
 
+    async function loginAsGuest() {
+      const result = await apiGuestLogin();
+      localStorage.setItem('token', result.token);
+      setToken(result.token);
+      setUser(result.user);
+      navigate('/dashboard', { replace: true });
+    }
+
     function logout() {
       localStorage.removeItem('token');
       setToken(null);
@@ -91,6 +99,7 @@ export function AuthProvider({ children }) {
       register,
       logout,
       loginWithToken,
+      loginAsGuest,
     };
   }, [isAuthenticated, location.state, navigate, user, token]);
 
