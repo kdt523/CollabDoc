@@ -123,6 +123,7 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
           return;
         }
 
+        socket.role = rows[0].role;
         socket.joinedDocId = docId;
         if (awarenessClientId != null) socket.awarenessClientId = awarenessClientId;
         await socket.join(docId);
@@ -207,6 +208,10 @@ function registerSocketHandlers({ io, publisher, subscriber }) {
       try {
         const docId = socket.joinedDocId || inferDocIdFromSocket(socket);
         if (!docId) return;
+
+        if (socket.role === 'viewer') {
+          return; // Ignore updates from viewers
+        }
 
         const update = new Uint8Array(updateArray);
         const serverDoc = docManager.getOrCreateDoc(docId);

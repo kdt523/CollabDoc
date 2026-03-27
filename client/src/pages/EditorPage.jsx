@@ -13,6 +13,7 @@ import ReplayTimeline from '../components/ReplayTimeline.jsx';
 import CRDTDebugPanel from '../components/CRDTDebugPanel.jsx';
 import ThreadPopover from '../components/ThreadPopover.jsx';
 import CallWindow from '../components/CallWindow.jsx';
+import ShareModal from '../components/ShareModal.jsx';
 
 import { getSocket } from '../socket.js';
 
@@ -93,6 +94,7 @@ export default function EditorPage() {
   const [chatOpen, setChatOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [activePopover, setActivePopover] = useState(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   useEffect(() => {
     setShareAccessReady(!shareToken);
@@ -158,22 +160,7 @@ export default function EditorPage() {
   }
 
   async function onShare() {
-    setShareNotice('');
-    setShareError('');
-    try {
-      const result = await shareDoc(token, docId);
-      const shareUrl = result.shareUrl;
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareUrl);
-        setShareNotice('Share link copied to clipboard.');
-        return;
-      }
-      window.prompt('Copy this share link:', shareUrl);
-      setShareNotice('Share link generated.');
-    } catch (err) {
-      setShareError(err?.message || 'Failed to generate share link');
-      throw err;
-    }
+    setIsShareModalOpen(true);
   }
 
   const onHandleComment = (threadTitle) => {
@@ -248,6 +235,7 @@ export default function EditorPage() {
               user={user}
               sendAwareness={sendAwareness}
               onSelectionChange={handleSelectionChange}
+              canEdit={canEdit}
             />
           )}
 
@@ -319,6 +307,15 @@ export default function EditorPage() {
 
       {showHistory && (
         <VersionHistory docId={docId} onClose={() => setShowHistory(false)} />
+      )}
+
+      {isShareModalOpen && (
+        <ShareModal 
+          docId={docId} 
+          title={title}
+          token={token} 
+          onClose={() => setIsShareModalOpen(false)} 
+        />
       )}
 
 

@@ -69,12 +69,16 @@ export function patchDocTitle(token, docId, title) {
   });
 }
 
-export function shareDoc(token, docId) {
+export function shareDoc(token, docId, role = 'viewer') {
   return apiRequest(`/docs/${docId}/share`, {
     method: 'POST',
     token,
-    body: { role: 'viewer' },
+    body: { role },
   });
+}
+
+export function getDocAccess(token, docId) {
+  return apiRequest(`/docs/${docId}/access`, { token });
 }
 
 export function joinSharedDoc(token, shareToken) {

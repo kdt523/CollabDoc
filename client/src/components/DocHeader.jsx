@@ -105,9 +105,9 @@ export default function DocHeader({
                 <span onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'file' ? null : 'file'); }}>File</span>
                 {activeMenu === 'file' && (
                   <div className="dropdown-menu">
-                    <div className="dropdown-item" onClick={() => { setIsEditing(true); }}>Rename</div>
-                    <div className="dropdown-item" onClick={onShare}>Share</div>
-                    <div className="dropdown-divider" />
+                    {canEdit && <div className="dropdown-item" onClick={() => { setIsEditing(true); }}>Rename</div>}
+                    {canEdit && <div className="dropdown-item" onClick={onShare}>Share</div>}
+                    {canEdit && <div className="dropdown-divider" />}
                     <div className="dropdown-item" onClick={handleDownload}>Download (.md)</div>
                     <div className="dropdown-item" onClick={onShowHistory}>Version history</div>
                     <div className="dropdown-divider" />
@@ -116,8 +116,17 @@ export default function DocHeader({
                 )}
               </div>
               <div className="menu-item-wrap">
-                <span onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'insert' ? null : 'insert'); }}>Insert</span>
-                {activeMenu === 'insert' && (
+                <span 
+                  className={!canEdit ? 'menu-disabled' : ''} 
+                  onClick={(e) => { 
+                    if (!canEdit) return;
+                    e.stopPropagation(); 
+                    setActiveMenu(activeMenu === 'insert' ? null : 'insert'); 
+                  }}
+                >
+                  Insert
+                </span>
+                {canEdit && activeMenu === 'insert' && (
                   <div className="dropdown-menu">
                     <div className="dropdown-item" onClick={() => {
                         const url = window.prompt('Enter Image URL:');
@@ -130,8 +139,17 @@ export default function DocHeader({
                 )}
               </div>
               <div className="menu-item-wrap">
-                <span onClick={(e) => { e.stopPropagation(); setActiveMenu(activeMenu === 'format' ? null : 'format'); }}>Format</span>
-                {activeMenu === 'format' && (
+                <span 
+                  className={!canEdit ? 'menu-disabled' : ''} 
+                  onClick={(e) => { 
+                    if (!canEdit) return;
+                    e.stopPropagation(); 
+                    setActiveMenu(activeMenu === 'format' ? null : 'format'); 
+                  }}
+                >
+                  Format
+                </span>
+                {canEdit && activeMenu === 'format' && (
                   <div className="dropdown-menu">
                     <div className="dropdown-item" onClick={() => insertMarkdown('**', '**')}>Bold (Selection)</div>
                     <div className="dropdown-item" onClick={() => insertMarkdown('*', '*')}>Italic (Selection)</div>

@@ -174,6 +174,35 @@ router.post('/:id/share', async (req, res) => {
   }
 });
 
+// GET /docs/:id/access — list users who have access to this document
+router.get('/:id/access', async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { id: docId } = req.params;
+
+    // First check if the requester has access
+    const { rows: requesterAccess } = await pool.query(
+      `SELECT role FROM document_access WHERE doc_id = $1 AND user_id = $2`,
+      [docId, userId]
+    );
+    if (!requesterAccess.length) return res.status(403).json({ code: 'FORBIDDEN', message: 'No access' });
+
+    const { rows } = await pool.query(
+      `SELECT u.id, u.name, u.email, da.role
+       FROM document_access da
+       JOIN users u ON u.id = da.user_id
+       WHERE da.doc_id = $1
+       ORDER BY CASE da.role WHEN 'owner' THEN 1 WHEN 'editor' THEN 2 ELSE 3 END, u.name ASC`,
+      [docId]
+    );
+
+    return res.json({ access: rows });
+  } catch (err) {
+    console.error('[docs] access list failed:', err);
+    return res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to load access list' });
+  }
+});
+
 // POST /docs/join/:shareToken — decode token, insert access, respond/redirect
 router.post('/join/:shareToken', async (req, res) => {
   try {

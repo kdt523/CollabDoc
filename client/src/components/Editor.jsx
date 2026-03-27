@@ -85,7 +85,7 @@ function applyPrefixToSelectedLines(view, prefix) {
   view.focus();
 }
 
-export default function Editor({ ydoc, ytext, active, awareness, user, sendAwareness, onSelectionChange }) {
+export default function Editor({ ydoc, ytext, active, awareness, user, sendAwareness, onSelectionChange, canEdit = true }) {
   const containerRef = useRef(null);
   const viewRef = useRef(null);
   const surfaceRef = useRef(null);
@@ -110,6 +110,7 @@ export default function Editor({ ydoc, ytext, active, awareness, user, sendAware
         markdown({ base: markdownLanguage }),
         imagePlugin,
         underlinePlugin,
+        EditorView.editable.of(canEdit),
         awareness ? yCollab(ytext, awareness, {
           user: { name: user?.name, color: '#30bced', colorLight: '#30bced33' },
         }) : [],
@@ -173,7 +174,7 @@ export default function Editor({ ydoc, ytext, active, awareness, user, sendAware
       viewRef.current = null;
       window.cmView = null;
     };
-  }, [active, ytext, ydoc, awareness]);
+  }, [active, ytext, ydoc, awareness, canEdit]);
 
   const withView = (fn) => () => {
     const view = viewRef.current;
@@ -190,37 +191,37 @@ export default function Editor({ ydoc, ytext, active, awareness, user, sendAware
   }
 
   return (
-    <div className="cm-editor-wrap">
-      <div className="editor-toolbar">
+    <div className={`cm-editor-wrap ${!canEdit ? 'read-only' : ''}`}>
+      <div className="editor-toolbar" style={{ opacity: canEdit ? 1 : 0.6, pointerEvents: canEdit ? 'auto' : 'none' }}>
         <div style={{ display: 'flex', borderRight: '1px solid #ddd', paddingRight: 8, gap: 2 }}>
-          <button className="toolbar-btn" onClick={withView((v) => undo(v))} title="Undo (Ctrl+Z)">↶</button>
-          <button className="toolbar-btn" onClick={withView((v) => redo(v))} title="Redo (Ctrl+Y)">↷</button>
+          <button className="toolbar-btn" onClick={withView((v) => undo(v))} title="Undo (Ctrl+Z)" disabled={!canEdit}>↶</button>
+          <button className="toolbar-btn" onClick={withView((v) => redo(v))} title="Redo (Ctrl+Y)" disabled={!canEdit}>↷</button>
           <button className="toolbar-btn" onClick={() => window.print()} title="Print (Ctrl+P)">🖨️</button>
         </div>
         
         <div style={{ display: 'flex', borderRight: '1px solid #ddd', padding: '0 8px', gap: 2 }}>
-          <select className="toolbar-select" style={{ width: 120 }}>
+          <select className="toolbar-select" style={{ width: 120 }} disabled={!canEdit}>
             <option>Normal text</option>
             <option>Heading 1</option>
             <option>Heading 2</option>
           </select>
-          <select className="toolbar-select" style={{ width: 100 }}>
+          <select className="toolbar-select" style={{ width: 100 }} disabled={!canEdit}>
             <option>Arial</option>
             <option>Roboto</option>
           </select>
         </div>
 
         <div style={{ display: 'flex', borderRight: '1px solid #ddd', padding: '0 8px', gap: 2 }}>
-          <button className="toolbar-btn" onClick={withView((v) => toggleFormatting(v, '**'))} title="Bold (Ctrl+B)"><b>B</b></button>
-          <button className="toolbar-btn" onClick={withView((v) => toggleFormatting(v, '*'))} title="Italic (Ctrl+I)"><i>I</i></button>
-          <button className="toolbar-btn" onClick={withView((v) => toggleFormatting(v, '<u>', '</u>'))} title="Underline (Ctrl+U)"><u>U</u></button>
-          <button className="toolbar-btn" style={{ color: '#1a73e8' }} title="Text color">A</button>
+          <button className="toolbar-btn" onClick={withView((v) => toggleFormatting(v, '**'))} title="Bold (Ctrl+B)" disabled={!canEdit}><b>B</b></button>
+          <button className="toolbar-btn" onClick={withView((v) => toggleFormatting(v, '*'))} title="Italic (Ctrl+I)" disabled={!canEdit}><i>I</i></button>
+          <button className="toolbar-btn" onClick={withView((v) => toggleFormatting(v, '<u>', '</u>'))} title="Underline (Ctrl+U)" disabled={!canEdit}><u>U</u></button>
+          <button className="toolbar-btn" style={{ color: '#1a73e8' }} title="Text color" disabled={!canEdit}>A</button>
         </div>
 
         <div style={{ display: 'flex', gap: 2, paddingLeft: 8 }}>
-          <button className="toolbar-btn" title="Left Align">≡</button>
-          <button className="toolbar-btn" title="Center Align">⌸</button>
-          <button className="toolbar-btn" title="Right Align">⌹</button>
+          <button className="toolbar-btn" title="Left Align" disabled={!canEdit}>≡</button>
+          <button className="toolbar-btn" title="Center Align" disabled={!canEdit}>⌸</button>
+          <button className="toolbar-btn" title="Right Align" disabled={!canEdit}>⌹</button>
         </div>
       </div>
       <div ref={surfaceRef} className="editor-surface">
