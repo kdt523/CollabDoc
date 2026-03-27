@@ -75,6 +75,17 @@ async function initSchema() {
       resolved     BOOLEAN DEFAULT FALSE
     );
 
+    CREATE TABLE IF NOT EXISTS password_reset_otps (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
+      otp_hash    TEXT NOT NULL,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      used        BOOLEAN DEFAULT FALSE,
+      attempts    INT DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS password_reset_otps_user_idx ON password_reset_otps(user_id);
     CREATE INDEX IF NOT EXISTS documents_updated_at_idx ON documents(updated_at);
     CREATE INDEX IF NOT EXISTS document_access_user_idx ON document_access(user_id);
     CREATE INDEX IF NOT EXISTS document_versions_doc_idx ON document_versions(doc_id);

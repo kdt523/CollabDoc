@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
 import EditorPage from './pages/EditorPage.jsx';
+import ForgotPasswordPage from './pages/ForgotPasswordPage.jsx';
 import { useAuth } from './hooks/useAuth.js';
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
       />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
       <Route
         path="/dashboard"

@@ -76,6 +76,13 @@ export function AuthProvider({ children }) {
       navigate('/login', { replace: true });
     }
 
+    function loginWithToken(tkn, userObj) {
+      localStorage.setItem('token', tkn);
+      setToken(tkn);
+      setUser(userObj);
+      navigate('/dashboard', { replace: true });
+    }
+
     return {
       user,
       token,
@@ -83,6 +90,7 @@ export function AuthProvider({ children }) {
       login,
       register,
       logout,
+      loginWithToken,
     };
   }, [isAuthenticated, location.state, navigate, user, token]);
 

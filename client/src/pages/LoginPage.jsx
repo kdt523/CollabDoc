@@ -80,8 +80,9 @@ export default function LoginPage() {
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
 
-          <div style={{ color: 'var(--muted)', fontSize: 13 }}>
-            New here? <Link to="/register">Create an account</Link>
+          <div style={{ color: 'var(--muted)', fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+            <span>New here? <Link to="/register">Create an account</Link></span>
+            <Link to="/forgot-password" style={{ color: '#1a73e8' }}>Forgot password?</Link>
           </div>
         </form>
       </div>
