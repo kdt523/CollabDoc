@@ -20,26 +20,40 @@ const annotationsRoutes = require('./routes/annotations');
 const PORT = process.env.PORT || 3001;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
+function parseAllowedOrigins() {
+  const configuredOrigins = [
+    CLIENT_URL,
+    process.env.CORS_ORIGINS,
+  ]
+    .filter(Boolean)
+    .flatMap((value) => value.split(','))
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(['http://localhost:5173', ...configuredOrigins]));
+}
+
+function createCorsOptions(allowedOrigins) {
+  return {
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS blocked: ${origin} not in allowed list`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  };
+}
+
 async function main() {
   await initSchema();
 
-  const ALLOWED_ORIGINS = [
-    'http://localhost:5173',
-    process.env.CLIENT_URL,
-  ].filter(Boolean);
+  const ALLOWED_ORIGINS = parseAllowedOrigins();
+  const corsOptions = createCorsOptions(ALLOWED_ORIGINS);
 
   const app = express();
-  app.use(
-    cors({
-      origin: (origin, callback) => {
-        if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-        callback(new Error(`CORS blocked: ${origin} not in allowed list`));
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
-    })
-  );
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/health', (req, res) => {
@@ -76,6 +90,7 @@ async function main() {
 
   const server = httpServer.listen(PORT, () => {
     console.log(`[server] listening on port ${PORT}`);
+    console.log(`[server] allowed origins: ${ALLOWED_ORIGINS.join(', ')}`);
   });
 
   const shutdown = async (signal) => {
@@ -113,4 +128,3 @@ main().catch((err) => {
   console.error('[server] failed to start:', err);
   process.exit(1);
 });
-
