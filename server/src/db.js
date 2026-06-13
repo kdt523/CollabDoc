@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
 
 const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_SSL = process.env.DATABASE_SSL === 'true' || process.env.NODE_ENV === 'production';
 
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL is required');
@@ -9,6 +10,7 @@ if (!DATABASE_URL) {
 const pool = new Pool({
   connectionString: DATABASE_URL,
   max: 10,
+  ssl: DATABASE_SSL ? { rejectUnauthorized: false } : false,
 });
 
 async function initSchema() {
